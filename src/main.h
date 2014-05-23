@@ -10,6 +10,7 @@
 #include "net.h"
 #include "script.h"
 #include "scrypt_mine.h"
+#include "scrypt.h"
 
 #include <list>
 
@@ -24,6 +25,8 @@ class CAddress;
 class CInv;
 class CRequestTracker;
 class CNode;
+
+static const int STARCOIN_TW_FORK_BLOCK = 777855; // At block #777855 starcoin was finally killed by time-warp bug now with PoW mining as well.
 
 static const unsigned int MAX_BLOCK_SIZE = 1000000;
 static const unsigned int MAX_BLOCK_SIZE_GEN = MAX_BLOCK_SIZE/2;
@@ -64,6 +67,7 @@ extern std::set<std::pair<COutPoint, unsigned int> > setStakeSeen;
 extern uint256 hashGenesisBlock;
 extern CBlockIndex* pindexGenesisBlock;
 extern unsigned int nStakeMinAge;
+extern unsigned int nNodeLifespan;
 extern int nCoinbaseMaturity;
 extern int nBestHeight;
 extern CBigNum bnBestChainTrust;
@@ -652,7 +656,7 @@ public:
     {
         std::string str;
         str += IsCoinBase()? "Coinbase" : (IsCoinStake()? "Coinstake" : "CTransaction");
-        str += strprintf("(hash=%s, nTime=%d, ver=%d, vin.size=%"PRIszu", vout.size=%"PRIszu", nLockTime=%d)\n",
+        str += strprintf("(hash=%s, nTime=%d, ver=%d, vin.size=%"PRIszu", vout.size=%"PRIszu", nLockTime=%d, comment='%s')\n",
             GetHash().ToString().substr(0,10).c_str(),
             nTime,
             nVersion,
@@ -916,12 +920,7 @@ public:
     uint256 GetHash() const
     {
         uint256 thash;
-        void * scratchbuff = scrypt_buffer_alloc();
-
-        scrypt_hash(CVOIDBEGIN(nVersion), sizeof(block_header), UINTBEGIN(thash), scratchbuff);
-
-        scrypt_buffer_free(scratchbuff);
-
+        scrypt_1024_1_1_256(BEGIN(nVersion), BEGIN(thash));
         return thash;
     }
 

@@ -2,8 +2,8 @@
 # Distributed under the MIT/X11 software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-USE_UPNP:=0
-USE_IPV6:=1
+USE_UPNP:=-
+USE_IPV6:=-
 
 LINK:=$(CXX)
 
@@ -93,7 +93,7 @@ DEBUGFLAGS=-g
 
 # CXXFLAGS can be specified on the make command line, so we use xCXXFLAGS that only
 # adds some defaults in front. Unfortunately, CXXFLAGS=... $(CXXFLAGS) does not work.
-xCXXFLAGS=-O2 -msse2 -pthread -Wall -Wextra -Wformat -Wformat-security -Wno-unused-parameter \
+xCXXFLAGS=-O2 -msse2 -pthread -Wall -Wextra -Wformat -Wformat-security -Wno-unused-parameter -fpermissive \
     $(DEBUGFLAGS) $(DEFS) $(HARDENING) $(CXXFLAGS)
 
 # LDFLAGS can be specified on the make command line, so we use xLDFLAGS that only
@@ -130,6 +130,8 @@ OBJS= \
     obj/noui.o \
     obj/kernel.o \
     obj/pbkdf2.o \
+    obj/scrypt.o \
+    obj/scrypt-sse2.o \
     obj/scrypt_mine.o \
     obj/scrypt-x86.o \
     obj/scrypt-x86_64.o

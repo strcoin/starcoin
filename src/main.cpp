@@ -37,6 +37,7 @@ set<pair<COutPoint, unsigned int> > setStakeSeen;
 uint256 hashGenesisBlock = hashGenesisBlockOfficial;
 static CBigNum bnProofOfWorkLimit(~uint256(0) >> 20);
 static CBigNum bnProofOfStakeLimit(~uint256(0) >> 20);
+uint256 nPoWBase = uint256("0x00000000ffff0000000000000000000000000000000000000000000000000000"); // difficulty-1 target
 
 
 static CBigNum bnProofOfWorkLimitTestNet(~uint256(0) >> 16);
@@ -1045,6 +1046,7 @@ int64 GetProofOfStakeReward(int64 nCoinAge, unsigned int nBits, unsigned int nTi
 
 static const int64 nTargetTimespan = 15 * 60;  // 15 mins
 static const int64 nTargetSpacingWorkMax = 12 * nStakeTargetSpacing; // 6 mins
+static const int64 nTargetSpacingWorkMaxNew = 3 * nStakeTargetSpacing; // 1.5 mins
 
 //
 // minimum amount of work that could possibly be required nTime after
@@ -1109,11 +1111,23 @@ unsigned int GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfS
 
     int64 nActualSpacing = pindexPrev->GetBlockTime() - pindexPrevPrev->GetBlockTime();
 
+    if(pindexLast->nHeight >= STARCOIN_TW_FORK_BLOCK)
+    {
+        if(nActualSpacing < 0)
+        {
+            nActualSpacing = 2;
+        }
+        else if(nActualSpacing > nTargetTimespan)
+        {
+            nActualSpacing = nTargetTimespan;
+        }
+    }
+
     // ppcoin: target change every block
     // ppcoin: retarget with exponential moving toward target spacing
     CBigNum bnNew;
     bnNew.SetCompact(pindexPrev->nBits);
-    int64 nTargetSpacing = fProofOfStake? nStakeTargetSpacing : min(nTargetSpacingWorkMax, (int64) nStakeTargetSpacing * (1 + pindexLast->nHeight - pindexPrev->nHeight));
+    int64 nTargetSpacing = fProofOfStake? nStakeTargetSpacing : min(pindexLast->nHeight >= STARCOIN_TW_FORK_BLOCK?nTargetSpacingWorkMaxNew:nTargetSpacingWorkMax, (int64) nStakeTargetSpacing * (1 + pindexLast->nHeight - pindexPrev->nHeight));
     int64 nInterval = nTargetTimespan / nTargetSpacing;
     bnNew *= ((nInterval - 1) * nTargetSpacing + nActualSpacing + nActualSpacing);
     bnNew /= ((nInterval + 1) * nTargetSpacing);
@@ -1866,11 +1880,14 @@ bool CBlock::SetBestChain(CTxDB& txdb, CBlockIndex* pindexNew)
     bnBestChainTrust = pindexNew->bnChainTrust;
     nTimeBestReceived = GetTime();
     nTransactionsUpdated++;
-    printf("SetBestChain: new best=%s  height=%d  trust=%s  date=%s\n",
-      hashBestChain.ToString().c_str(), nBestHeight, bnBestChainTrust.ToString().c_str(),
-      DateTimeStrFormat("%x %H:%M:%S", pindexBest->GetBlockTime()).c_str());
 
-	printf("Stake checkpoint: %x\n", pindexBest->nStakeModifierChecksum);
+    CBigNum bnBestBlockTrust = pindexBest->nHeight != 0 ? (pindexBest->bnChainTrust - pindexBest->pprev->bnChainTrust) : pindexBest->bnChainTrust;
+
+    printf("SetBestChain: new best=%s  height=%d  trust=%s  blocktrust=%s  date=%s\n",
+      hashBestChain.ToString().substr(0,20).c_str(), nBestHeight,
+      bnBestChainTrust.ToString().c_str(),
+      bnBestBlockTrust.ToString().c_str(),
+      DateTimeStrFormat("%x %H:%M:%S", pindexBest->GetBlockTime()).c_str());
 
     // Check the version of the last 100 blocks to see if we need to upgrade:
     if (!fIsInitialDownload)
@@ -2216,18 +2233,93 @@ CBigNum CBlockIndex::GetBlockTrust() const
     if (bnTarget <= 0)
         return 0;
 
-    if (IsProofOfStake())
+    /* Old protocol */
+    if (!fTestNet && nHeight <= STARCOIN_TW_FORK_BLOCK)
     {
-        // Return trust score as usual
-        return (CBigNum(1)<<256) / (bnTarget+1);
+        if (IsProofOfStake())
+        {
+            // Return trust score as usual
+            return (CBigNum(1)<<256) / (bnTarget+1);
+        }
+        else
+        {
+            // Calculate work amount for block
+            CBigNum bnPoWTrust = (bnProofOfWorkLimit / (bnTarget+1));
+            return bnPoWTrust > 1 ? bnPoWTrust : 1;
+        }
+    }
+
+    /* New protocol */
+
+    // Calculate work amount for block
+    CBigNum bnPoWTrust = (CBigNum(nPoWBase) / (bnTarget+1));
+
+    // Set nPowTrust to 1 if we are checking PoS block or PoW difficulty is too low
+    bnPoWTrust = (IsProofOfStake() || bnPoWTrust < 1) ? 1 : bnPoWTrust;
+
+    // Return nPoWTrust for the first 12 blocks
+    if (pprev == NULL || pprev->nHeight < 12)
+        return bnPoWTrust;
+
+    const CBlockIndex* currentIndex = pprev;
+
+    if(IsProofOfStake())
+    {
+        CBigNum bnNewTrust = (CBigNum(1)<<256) / (bnTarget+1);
+
+        // Return 1/3 of score if parent block is not the PoW block
+        if (!pprev->IsProofOfWork())
+            return (bnNewTrust / 3);
+
+        int nPoWCount = 0;
+
+        // Check last 12 blocks type
+        while (pprev->nHeight - currentIndex->nHeight < 12)
+        {
+            if (currentIndex->IsProofOfWork())
+                nPoWCount++;
+            currentIndex = currentIndex->pprev;
+        }
+
+        // Return 1/3 of score if less than 3 PoW blocks found
+        if (nPoWCount < 3)
+            return (bnNewTrust / 3);
+
+        return bnNewTrust;
     }
     else
     {
-        // Calculate work amount for block
-        CBigNum bnPoWTrust = (bnProofOfWorkLimit / (bnTarget+1));
-        return bnPoWTrust > 1 ? bnPoWTrust : 1;
+        CBigNum bnLastBlockTrust = CBigNum(pprev->bnChainTrust - pprev->pprev->bnChainTrust);
+
+        // Return nPoWTrust + 2/3 of previous block score if two parent blocks are not PoS blocks
+        if (!(pprev->IsProofOfStake() && pprev->pprev->IsProofOfStake()))
+            return bnPoWTrust + (2 * bnLastBlockTrust / 3);
+
+        int nPoSCount = 0;
+
+        // Check last 12 blocks type
+        while (pprev->nHeight - currentIndex->nHeight < 12)
+        {
+            if (currentIndex->IsProofOfStake())
+                nPoSCount++;
+            currentIndex = currentIndex->pprev;
+        }
+
+        // Return nPoWTrust + 2/3 of previous block score if less than 7 PoS blocks found
+        if (nPoSCount < 7)
+            return bnPoWTrust + (2 * bnLastBlockTrust / 3);
+
+        bnTarget.SetCompact(pprev->nBits);
+
+        if (bnTarget <= 0)
+            return 0;
+
+        CBigNum bnNewTrust = (CBigNum(1)<<256) / (bnTarget+1);
+
+        // Return nPoWTrust + full trust score for previous block nBits
+        return bnPoWTrust + bnNewTrust;
     }
-} 
+}
 
 bool CBlockIndex::IsSuperMajority(int minVersion, const CBlockIndex* pstart, unsigned int nRequired, unsigned int nToCheck)
 {
@@ -3413,10 +3505,13 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
 
     else if (strCommand == "getaddr")
     {
+        // Don't return addresses older than nCutOff timestamp
+        int64 nCutOff = GetTime() - (nNodeLifespan * 24 * 60 * 60);
         pfrom->vAddrToSend.clear();
         vector<CAddress> vAddr = addrman.GetAddr();
         BOOST_FOREACH(const CAddress &addr, vAddr)
-            pfrom->PushAddress(addr);
+            if(addr.nTime > nCutOff)
+                pfrom->PushAddress(addr);
     }
 
 

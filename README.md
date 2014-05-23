@@ -1,6 +1,21 @@
 
 StarCoin - a decendent of Novacoin/PPCoin with Pow/PoS. It combines the great features from Luckycoin (random blocks) and Florincoin (transaction message). It is the first PoW/PoS coin supporting random blocks.
 
+Version 1.7.0
+
+After the time-wrap bug hit Starcoin at block 777855 again and finally stoped the network from producing new blocks the following changes to the protocol were implemented:
+
+1) The ActualSpacing is bound by 2 seconds and TargetTimespan, i.e. 15 minutes
+2) The PoW/PoS ratio is set to 1:3 (compare to the original one 1:12) to allow more PoW blocks as anyway for the last half of year the PoS was already broken.
+3) The block trust scoring algorithm changed to target 3 PoW blocks among past 12 blocks.
+
+Release Notes:
+
+The Windows binary provided is native Win64 application cross-built using linux mingw64 environment.
+It is built with BerkeleyDB 4.8.30 and openssl-1.0.1g. The builtin CPU miner in above mentioned build should not work due to some incompatibility between mingw64 and original scrypt implementation. Though, mingw32 version should work just fine. Feel free to build one if you need this functionality.
+
+
+
 The official website is: www.starcoin.info
 
  
