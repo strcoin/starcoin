@@ -1357,7 +1357,6 @@ bool CWallet::CreateCoinStake(const CKeyStore& keystore, unsigned int nBits, int
     CBigNum bnTargetPerCoinDay;
     bnTargetPerCoinDay.SetCompact(nBits);
 
-    LOCK2(cs_main, cs_wallet);
     txNew.vin.clear();
     txNew.vout.clear();
     // Mark coin stake transaction
@@ -1380,17 +1379,21 @@ bool CWallet::CreateCoinStake(const CKeyStore& keystore, unsigned int nBits, int
         return false;
     int64 nCredit = 0;
     CScript scriptPubKeyKernel;
+    CTxDB txdb("r");
     BOOST_FOREACH(PAIRTYPE(const CWalletTx*, unsigned int) pcoin, setCoins)
     {
-        CTxDB txdb("r");
         CTxIndex txindex;
-        if (!txdb.ReadTxIndex(pcoin.first->GetHash(), txindex))
-            continue;
+        CBlock block;
+        {
+            LOCK2(cs_main, cs_wallet);
+            if (!txdb.ReadTxIndex(pcoin.first->GetHash(), txindex))
+                continue;
 
         // Read block header
-        CBlock block;
-        if (!block.ReadFromDisk(txindex.pos.nFile, txindex.pos.nBlockPos, false))
-            continue;
+            if (!block.ReadFromDisk(txindex.pos.nFile, txindex.pos.nBlockPos, false))
+                continue;
+        }
+
         static int nMaxStakeSearchInterval = 60;
         if (block.GetBlockTime() + nStakeMinAge > txNew.nTime - nMaxStakeSearchInterval)
             continue; // only count coins meeting min age requirement
